@@ -1,0 +1,21 @@
+{
+  "name": "agent",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "bun run build && electron .",
+    "build": "tsc && bun ./scripts/copy-assets.mjs",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/qrcode": "^1.5.5",
+    "electron": "^33.0.0",
+    "server": "*",
+    "typescript": "^5.6.0"
+  }
+}
