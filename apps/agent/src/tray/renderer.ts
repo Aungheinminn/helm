@@ -15,7 +15,7 @@ interface HelmBridge {
   quit(): Promise<void>;
 }
 
-const helm: HelmBridge = (window as unknown as { helm: HelmBridge }).helm;
+const bridge: HelmBridge = (window as unknown as { helm: HelmBridge }).helm;
 
 function timeAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -39,10 +39,11 @@ function activateSection(name: string) {
 }
 
 async function render() {
-  const s = await helm.state();
+  const s = await bridge.state();
 
   document.getElementById("qr")!.innerHTML = s.pairing.qrSvg;
-  document.getElementById("qrPayload")!.textContent = s.pairing.payload;
+  document.getElementById("pairEndpoint")!.textContent = `${s.host}:${s.port}`;
+  document.getElementById("pairCode")!.textContent = s.pairing.code;
   document.getElementById("endpoint")!.textContent = `${s.host}:${s.port}`;
   document.getElementById("hostname")!.textContent = s.hostname;
 
@@ -65,7 +66,7 @@ async function render() {
     .join("");
   list.querySelectorAll<HTMLButtonElement>("[data-revoke]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      await helm.revoke(btn.dataset.revoke!);
+      await bridge.revoke(btn.dataset.revoke!);
       render();
     });
   });
@@ -76,11 +77,21 @@ document.querySelectorAll<HTMLButtonElement>("aside nav button").forEach((btn) =
 });
 
 document.getElementById("rotate")!.addEventListener("click", async () => {
-  await helm.rotateCode();
+  await bridge.rotateCode();
   render();
 });
 
-document.getElementById("quit")!.addEventListener("click", () => helm.quit());
+document.getElementById("copy")!.addEventListener("click", async () => {
+  const btn = document.getElementById("copy") as HTMLButtonElement;
+  const code = document.getElementById("pairCode")!.textContent ?? "";
+  if (!code) return;
+  await navigator.clipboard.writeText(code);
+  const prev = btn.textContent;
+  btn.textContent = "Copied";
+  setTimeout(() => { btn.textContent = prev; }, 1200);
+});
+
+document.getElementById("quit")!.addEventListener("click", () => bridge.quit());
 
 render();
 setInterval(render, 5000);

@@ -25,7 +25,7 @@ app.whenReady().then(async () => {
   }
 
   tray = new Tray(nativeImage.createEmpty());
-  tray.setTitle("⚓");
+  tray.setTitle("⛵");
   tray.setToolTip("Helm");
   tray.on("click", () => toggleConfigWindow());
   tray.on("right-click", () => showContextMenu());

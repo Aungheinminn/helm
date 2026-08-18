@@ -61,13 +61,30 @@
 
       #qr { background: white; padding: 10px; border-radius: 8px; display: inline-block; }
       #qr svg { display: block; }
-      .code {
-        font-family: "SF Mono", Menlo, monospace;
-        font-size: 11px;
+
+      .pair-fields {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: 80px 1fr;
+        row-gap: 8px;
+        column-gap: 16px;
+        max-width: 360px;
+        align-items: center;
+      }
+      .pair-fields .label {
+        font-size: 12px;
         color: #888;
-        margin-top: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .pair-fields .value {
+        font-family: "SF Mono", Menlo, monospace;
+        font-size: 13px;
+        color: #e8e8e8;
+        user-select: text;
+        -webkit-user-select: text;
+        cursor: text;
         word-break: break-all;
-        max-width: 320px;
       }
 
       button.primary, button.danger, button.plain {
@@ -122,9 +139,15 @@
           <h2>Pair a phone</h2>
           <p class="muted">Open the Helm PWA on your phone and scan this code.</p>
           <div id="qr"></div>
-          <div class="code" id="qrPayload"></div>
+          <div class="pair-fields">
+            <div class="label">Endpoint</div>
+            <div class="value" id="pairEndpoint"></div>
+            <div class="label">Code</div>
+            <div class="value" id="pairCode"></div>
+          </div>
           <div class="actions">
             <button id="rotate" class="plain">Rotate code</button>
+            <button id="copy" class="plain">Copy code</button>
           </div>
         </section>
 
