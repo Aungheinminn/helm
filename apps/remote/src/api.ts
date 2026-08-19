@@ -2,9 +2,20 @@ import { treaty } from "@elysiajs/eden";
 import type { App } from "server/src/index";
 import type { PairedHost } from "./store";
 
+let onUnauthorized: (() => void) | null = null;
+export function setOnUnauthorized(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+export function reportStatus(status: number): void {
+  if (status === 401) onUnauthorized?.();
+}
+
 export function clientFor(host: PairedHost) {
-  return treaty<App>(`${host.host}:${host.port}`, {
+  return treaty<App>(`http://${host.host}:${host.port}`, {
     headers: { Authorization: `Bearer ${host.token}` },
+    onResponse: (res) => {
+      reportStatus(res.status);
+    },
   });
 }
 

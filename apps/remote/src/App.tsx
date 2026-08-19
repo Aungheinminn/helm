@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   loadHosts,
   getActiveHostId,
@@ -6,6 +6,7 @@ import {
   removeHost,
   type PairedHost,
 } from "./store";
+import { setOnUnauthorized } from "./api";
 import { PairScreen } from "./screens/Pair";
 import { HostsScreen } from "./screens/Hosts";
 import { ControlCentre } from "./screens/ControlCentre";
@@ -14,6 +15,18 @@ export function App() {
   const [hosts, setHosts] = useState<PairedHost[]>(loadHosts());
   const [activeId, setActiveId] = useState<string | null>(getActiveHostId());
   const [pairing, setPairing] = useState(false);
+
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      const id = getActiveHostId();
+      if (!id) return;
+      removeHost(id);
+      setActiveHostId(null);
+      setActiveId(null);
+      setHosts(loadHosts());
+    });
+    return () => setOnUnauthorized(null);
+  }, []);
 
   function refresh() {
     setHosts(loadHosts());

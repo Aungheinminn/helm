@@ -10,10 +10,14 @@ type Props = {
 
 type PairTarget = { host: string; port: number; code: string };
 
+type Mode = "qr" | "code";
+
 export function PairScreen({ onPaired, onCancel }: Props) {
+  const [mode, setMode] = useState<Mode>("qr");
   const [target, setTarget] = useState<PairTarget | null>(null);
   const [name, setName] = useState<string>(() => defaultDeviceName());
   const [manualCode, setManualCode] = useState("");
+  const [manualEndpoint, setManualEndpoint] = useState<string>(() => defaultEndpoint());
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,10 +25,23 @@ export function PairScreen({ onPaired, onCancel }: Props) {
 
   useEffect(() => {
     if (target) return;
+    if (mode !== "qr") return;
     const el = document.getElementById("scanner");
     if (!el) return;
     const scanner = new Html5Qrcode("scanner");
     scannerRef.current = scanner;
+    let cancelled = false;
+    let running = false;
+
+    const safeStop = () => {
+      if (!running) return;
+      running = false;
+      try {
+        scanner.stop().catch(() => {});
+      } catch {
+        /* scanner not in a stoppable state */
+      }
+    };
 
     scanner
       .start(
@@ -35,7 +52,7 @@ export function PairScreen({ onPaired, onCancel }: Props) {
             const payload = JSON.parse(decoded) as PairTarget;
             if (payload.host && payload.port && payload.code) {
               setTarget(payload);
-              scanner.stop().catch(() => {});
+              safeStop();
             }
           } catch {
             /* ignore non-JSON */
@@ -43,21 +60,29 @@ export function PairScreen({ onPaired, onCancel }: Props) {
         },
         () => {},
       )
-      .catch((e) => setScannerError(String(e)));
+      .then(() => {
+        running = true;
+        if (cancelled) safeStop();
+      })
+      .catch((e) => {
+        if (!cancelled) setScannerError(String(e));
+      });
 
     return () => {
-      scanner.stop().catch(() => {});
+      cancelled = true;
+      safeStop();
     };
-  }, [target]);
+  }, [target, mode]);
 
   function useManualCode() {
     if (!manualCode.trim()) return;
-    const url = new URL(window.location.href);
-    setTarget({
-      host: url.hostname,
-      port: Number(url.port) || (url.protocol === "https:" ? 443 : 80),
-      code: manualCode.trim(),
-    });
+    const parsed = parseEndpoint(manualEndpoint);
+    if (!parsed) {
+      setError("Endpoint must look like host:port");
+      return;
+    }
+    setError(null);
+    setTarget({ host: parsed.host, port: parsed.port, code: manualCode.trim() });
   }
 
   async function doPair() {
@@ -69,7 +94,7 @@ export function PairScreen({ onPaired, onCancel }: Props) {
       const res = await pairWith(baseUrl, target.code, name);
       addHost({
         id: res.deviceId,
-        name: `${res.host} (${target.host})`,
+        name: res.host,
         host: target.host,
         port: target.port,
         token: res.token,
@@ -99,37 +124,77 @@ export function PairScreen({ onPaired, onCancel }: Props) {
 
       {!target && (
         <>
-          <p style={{ color: "#888", fontSize: 13 }}>
-            Scan the QR from the Mac window, or type the code below.
-          </p>
-          <div className="scanner" id="scanner" />
-          {scannerError && (
-            <div className="error" style={{ fontSize: 12 }}>
-              Camera unavailable: {scannerError}. Use manual code below.
-            </div>
-          )}
-          <div style={{ marginTop: 16 }}>
-            <label style={{ fontSize: 13, color: "#888" }}>Or enter code manually</label>
-            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <div className="segmented">
+            <button
+              className={mode === "qr" ? "active" : ""}
+              onClick={() => setMode("qr")}
+            >
+              QR
+            </button>
+            <button
+              className={mode === "code" ? "active" : ""}
+              onClick={() => setMode("code")}
+            >
+              Code
+            </button>
+          </div>
+
+          {mode === "qr" ? (
+            <>
+              <p style={{ color: "#888", fontSize: 13, marginTop: 12 }}>
+                Point at the QR shown on the Mac.
+              </p>
+              <div className="scanner" id="scanner" />
+              {scannerError && (
+                <div className="error" style={{ fontSize: 12 }}>
+                  Camera unavailable: {scannerError}
+                  <button
+                    className="action"
+                    style={{ marginLeft: 8, padding: "4px 10px", fontSize: 12 }}
+                    onClick={() => setMode("code")}
+                  >
+                    Use code instead
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ marginTop: 16 }}>
+              <label style={{ fontSize: 13, color: "#888" }}>Mac endpoint</label>
               <input
                 className="name-input"
-                style={{ marginTop: 0 }}
-                value={manualCode}
-                onChange={(e) => setManualCode(e.target.value)}
-                placeholder="paste the code shown on Mac"
+                value={manualEndpoint}
+                onChange={(e) => setManualEndpoint(e.target.value)}
+                placeholder="host:port (e.g. 192.168.1.5:8787)"
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
               />
-              <button
-                className="action primary"
-                onClick={useManualCode}
-                disabled={!manualCode.trim()}
-              >
-                Use
-              </button>
+              <label style={{ fontSize: 13, color: "#888", display: "block", marginTop: 12 }}>
+                Pairing code
+              </label>
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <input
+                  className="name-input"
+                  style={{ marginTop: 0 }}
+                  value={manualCode}
+                  onChange={(e) => setManualCode(e.target.value)}
+                  placeholder="paste from Mac"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <button
+                  className="action primary"
+                  onClick={useManualCode}
+                  disabled={!manualCode.trim() || !manualEndpoint.trim()}
+                >
+                  Use
+                </button>
+              </div>
+              {error && <div className="error">{error}</div>}
             </div>
-          </div>
+          )}
         </>
       )}
 
@@ -175,4 +240,19 @@ function defaultDeviceName(): string {
   if (/iPad/.test(ua)) return "iPad";
   if (/Android/.test(ua)) return "Android";
   return "Phone";
+}
+
+function defaultEndpoint(): string {
+  const { hostname, port, protocol } = window.location;
+  const fallback = protocol === "https:" ? "443" : "80";
+  return `${hostname}:${port || fallback}`;
+}
+
+function parseEndpoint(raw: string): { host: string; port: number } | null {
+  const trimmed = raw.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const m = trimmed.match(/^(.+?):(\d+)$/);
+  if (!m) return null;
+  const port = Number(m[2]);
+  if (!m[1] || !Number.isFinite(port) || port <= 0 || port > 65535) return null;
+  return { host: m[1], port };
 }

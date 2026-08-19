@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { clientFor } from "../api";
+import { clientFor, reportStatus } from "../api";
 import type { PairedHost } from "../store";
 import { CURATED_APPS, type CuratedApp } from "../apps-registry";
 
@@ -36,9 +36,10 @@ export function AppsScreen({ host }: { host: PairedHost }) {
         if (cancelled) break;
         try {
           const res = await fetch(
-            `${window.location.protocol}//${host.host}:${host.port}/apps/icon?name=${encodeURIComponent(app.launchName)}`,
+            `http://${host.host}:${host.port}/apps/icon?name=${encodeURIComponent(app.launchName)}`,
             { headers: { Authorization: `Bearer ${host.token}` } },
           );
+          reportStatus(res.status);
           if (!res.ok) continue;
           const blob = await res.blob();
           if (cancelled) break;
