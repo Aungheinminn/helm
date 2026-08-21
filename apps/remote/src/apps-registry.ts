@@ -24,4 +24,5 @@ export const CURATED_APPS: CuratedApp[] = [
     launchName: "MongoDB Compass",
     processName: "MongoDB Compass",
   },
+  { key: "hiddify", displayName: "Hiddify", launchName: "Hiddify", processName: "Hiddify" },
 ];
