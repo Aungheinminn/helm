@@ -12,21 +12,21 @@ type PairTarget = { host: string; port: number; code: string };
 type Mode = "qr" | "code";
 type Reach = "idle" | "probing" | "reachable" | "unreachable";
 
-const CODE_LEN = 6;
-const emptyCode = () => Array<string>(CODE_LEN).fill("");
+const CODE_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 
 export function PairScreen({ onPaired, onCancel: _onCancel }: Props) {
   const [mode, setMode] = useState<Mode>("qr");
   const [endpoint, setEndpoint] = useState<string>(() => defaultEndpoint());
-  const [code, setCode] = useState<string[]>(emptyCode);
+  const [code, setCode] = useState<string>("");
   const [reach, setReach] = useState<Reach>("idle");
   const [cameraBlocked, setCameraBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const slotRefs = useRef<Array<HTMLInputElement | null>>([]);
 
-  const filled = code.every((c) => c);
+  const trimmedCode = code.trim();
+  const codeValid = CODE_PATTERN.test(trimmedCode);
+  const codeBad = trimmedCode.length > 0 && !codeValid;
   const parsedEndpoint = useMemo(() => parseEndpoint(endpoint), [endpoint]);
 
   useEffect(() => {
@@ -119,42 +119,25 @@ export function PairScreen({ onPaired, onCancel: _onCancel }: Props) {
       onPaired();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setCode(emptyCode());
     } finally {
       setBusy(false);
     }
   }
 
   function submitCode() {
-    if (!filled || !parsedEndpoint || busy) return;
+    if (!codeValid || !parsedEndpoint || busy) return;
     void doPair({
       host: parsedEndpoint.host,
       port: parsedEndpoint.port,
-      code: code.join(""),
+      code: trimmedCode,
     });
-  }
-
-  function updateSlot(i: number, raw: string) {
-    const v = raw.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(-1);
-    const next = code.slice();
-    next[i] = v;
-    setCode(next);
-    if (v && slotRefs.current[i + 1]) slotRefs.current[i + 1]?.focus();
-  }
-
-  function slotKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace" && !code[i] && slotRefs.current[i - 1]) {
-      slotRefs.current[i - 1]?.focus();
-    }
   }
 
   async function pasteCode() {
     try {
       const raw = await navigator.clipboard.readText();
-      const cleaned = raw.replace(/[^a-z0-9]/gi, "").slice(0, CODE_LEN).toUpperCase().split("");
-      setCode(Array.from({ length: CODE_LEN }, (_, i) => cleaned[i] ?? ""));
-      const nextEmpty = cleaned.length < CODE_LEN ? cleaned.length : CODE_LEN - 1;
-      slotRefs.current[nextEmpty]?.focus();
+      setCode(raw.trim());
+      setError(null);
     } catch {
       /* clipboard unavailable */
     }
@@ -262,36 +245,50 @@ export function PairScreen({ onPaired, onCancel: _onCancel }: Props) {
                     Paste
                   </button>
                 </div>
-                <div className="pair-slots">
-                  {code.map((value, i) => (
-                    <input
-                      key={i}
-                      className={`pair-slot ${value ? "filled" : ""}`}
-                      value={value}
-                      onChange={(e) => updateSlot(i, e.target.value)}
-                      onKeyDown={(e) => slotKeyDown(i, e)}
-                      ref={(el) => {
-                        slotRefs.current[i] = el;
+                <div
+                  className={`pair-code-field ${codeValid ? "valid" : codeBad ? "bad" : ""}`}
+                >
+                  <input
+                    value={code}
+                    onChange={(e) => {
+                      setCode(e.target.value.trim());
+                      setError(null);
+                    }}
+                    placeholder="paste the code from the Mac app"
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoComplete="off"
+                  />
+                  {trimmedCode.length > 0 && (
+                    <button
+                      className="pair-code-clear"
+                      title="Clear"
+                      onClick={() => {
+                        setCode("");
+                        setError(null);
                       }}
-                      maxLength={1}
-                      inputMode="text"
-                      autoCapitalize="characters"
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  ))}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
-                <p className="pair-field-hint">
-                  Six characters, shown under Settings › Devices on the Mac.
+                <p
+                  className={`pair-code-hint ${codeValid ? "valid" : codeBad ? "bad" : ""}`}
+                >
+                  {codeBad
+                    ? "That doesn't look like a pairing code — copy the whole string from the Mac app."
+                    : codeValid
+                      ? `${trimmedCode.length} characters — looks right.`
+                      : "Copy the code from Settings › Devices on the Mac and paste it here."}
                 </p>
               </div>
 
               {error && <div className="pair-error">{error}</div>}
 
               <button
-                className={`pair-cta ${filled && parsedEndpoint && !busy ? "ready" : ""}`}
+                className={`pair-cta ${codeValid && parsedEndpoint && !busy ? "ready" : ""}`}
                 onClick={submitCode}
-                disabled={!filled || !parsedEndpoint || busy}
+                disabled={!codeValid || !parsedEndpoint || busy}
               >
                 {busy ? "Pairing…" : "Pair device"}
               </button>
