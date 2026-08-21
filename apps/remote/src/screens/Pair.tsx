@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { pairWith } from "../api";
 import { addHost, setActiveHostId } from "../store";
@@ -9,23 +9,28 @@ type Props = {
 };
 
 type PairTarget = { host: string; port: number; code: string };
-
 type Mode = "qr" | "code";
+type Reach = "idle" | "probing" | "reachable" | "unreachable";
 
-export function PairScreen({ onPaired, onCancel }: Props) {
+const CODE_LEN = 6;
+const emptyCode = () => Array<string>(CODE_LEN).fill("");
+
+export function PairScreen({ onPaired, onCancel: _onCancel }: Props) {
   const [mode, setMode] = useState<Mode>("qr");
-  const [target, setTarget] = useState<PairTarget | null>(null);
-  const [name, setName] = useState<string>(() => defaultDeviceName());
-  const [manualCode, setManualCode] = useState("");
-  const [manualEndpoint, setManualEndpoint] = useState<string>(() => defaultEndpoint());
-  const [scannerError, setScannerError] = useState<string | null>(null);
+  const [endpoint, setEndpoint] = useState<string>(() => defaultEndpoint());
+  const [code, setCode] = useState<string[]>(emptyCode);
+  const [reach, setReach] = useState<Reach>("idle");
+  const [cameraBlocked, setCameraBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const slotRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  const filled = code.every((c) => c);
+  const parsedEndpoint = useMemo(() => parseEndpoint(endpoint), [endpoint]);
 
   useEffect(() => {
-    if (target) return;
-    if (mode !== "qr") return;
+    if (mode !== "qr" || busy) return;
     const el = document.getElementById("scanner");
     if (!el) return;
     const scanner = new Html5Qrcode("scanner");
@@ -39,7 +44,7 @@ export function PairScreen({ onPaired, onCancel }: Props) {
       try {
         scanner.stop().catch(() => {});
       } catch {
-        /* scanner not in a stoppable state */
+        /* not stoppable */
       }
     };
 
@@ -51,8 +56,8 @@ export function PairScreen({ onPaired, onCancel }: Props) {
           try {
             const payload = JSON.parse(decoded) as PairTarget;
             if (payload.host && payload.port && payload.code) {
-              setTarget(payload);
               safeStop();
+              void doPair(payload);
             }
           } catch {
             /* ignore non-JSON */
@@ -62,36 +67,46 @@ export function PairScreen({ onPaired, onCancel }: Props) {
       )
       .then(() => {
         running = true;
+        setCameraBlocked(false);
         if (cancelled) safeStop();
       })
-      .catch((e) => {
-        if (!cancelled) setScannerError(String(e));
+      .catch(() => {
+        if (!cancelled) setCameraBlocked(true);
       });
 
     return () => {
       cancelled = true;
       safeStop();
     };
-  }, [target, mode]);
+  }, [mode, busy]);
 
-  function useManualCode() {
-    if (!manualCode.trim()) return;
-    const parsed = parseEndpoint(manualEndpoint);
-    if (!parsed) {
-      setError("Endpoint must look like host:port");
+  useEffect(() => {
+    if (mode !== "code") return;
+    if (!parsedEndpoint) {
+      setReach("idle");
       return;
     }
-    setError(null);
-    setTarget({ host: parsed.host, port: parsed.port, code: manualCode.trim() });
-  }
+    setReach("probing");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    const url = `${window.location.protocol}//${parsedEndpoint.host}:${parsedEndpoint.port}/health`;
+    fetch(url, { mode: "no-cors", signal: controller.signal })
+      .then(() => setReach("reachable"))
+      .catch(() => setReach("unreachable"))
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [mode, parsedEndpoint?.host, parsedEndpoint?.port]);
 
-  async function doPair() {
-    if (!target) return;
+  async function doPair(target: PairTarget) {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
       const baseUrl = `${window.location.protocol}//${target.host}:${target.port}`;
-      const res = await pairWith(baseUrl, target.code, name);
+      const res = await pairWith(baseUrl, target.code, defaultDeviceName());
       addHost({
         id: res.deviceId,
         name: res.host,
@@ -104,134 +119,216 @@ export function PairScreen({ onPaired, onCancel }: Props) {
       onPaired();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setCode(emptyCode());
     } finally {
       setBusy(false);
     }
   }
 
+  function submitCode() {
+    if (!filled || !parsedEndpoint || busy) return;
+    void doPair({
+      host: parsedEndpoint.host,
+      port: parsedEndpoint.port,
+      code: code.join(""),
+    });
+  }
+
+  function updateSlot(i: number, raw: string) {
+    const v = raw.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(-1);
+    const next = code.slice();
+    next[i] = v;
+    setCode(next);
+    if (v && slotRefs.current[i + 1]) slotRefs.current[i + 1]?.focus();
+  }
+
+  function slotKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && !code[i] && slotRefs.current[i - 1]) {
+      slotRefs.current[i - 1]?.focus();
+    }
+  }
+
+  async function pasteCode() {
+    try {
+      const raw = await navigator.clipboard.readText();
+      const cleaned = raw.replace(/[^a-z0-9]/gi, "").slice(0, CODE_LEN).toUpperCase().split("");
+      setCode(Array.from({ length: CODE_LEN }, (_, i) => cleaned[i] ?? ""));
+      const nextEmpty = cleaned.length < CODE_LEN ? cleaned.length : CODE_LEN - 1;
+      slotRefs.current[nextEmpty]?.focus();
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
   return (
     <div className="pair-screen">
-      <header>
-        <div style={{ flex: 1 }}>
-          <h1>Pair with Mac</h1>
+      <div className="pair-card">
+        <div className="pair-hero">
+          <div className="pair-hero-illo">
+            <div className="pair-hero-phone">
+              <div className="pair-hero-phone-btn" />
+            </div>
+            <svg
+              className="pair-hero-dash"
+              width="46"
+              height="10"
+              viewBox="0 0 46 10"
+              fill="none"
+            >
+              <path d="M1 5 H45" />
+            </svg>
+            <div className="pair-hero-mac">
+              <div className="pair-hero-mac-screen" />
+              <div className="pair-hero-mac-base" />
+            </div>
+          </div>
+          <div className="pair-hero-text">
+            <h1>Pair with Mac</h1>
+            <p>Connect this device to the Mac app to mirror your session.</p>
+          </div>
         </div>
-        {onCancel && (
-          <button className="action" onClick={onCancel}>
-            Cancel
-          </button>
-        )}
-      </header>
 
-      {!target && (
-        <>
-          <div className="segmented">
+        <div className="pair-panel">
+          <div className="pair-tabs">
             <button
               className={mode === "qr" ? "active" : ""}
               onClick={() => setMode("qr")}
             >
-              QR
+              Scan QR
             </button>
             <button
               className={mode === "code" ? "active" : ""}
               onClick={() => setMode("code")}
             >
-              Code
+              Enter code
             </button>
           </div>
 
           {mode === "qr" ? (
-            <>
-              <p style={{ color: "#888", fontSize: 13, marginTop: 12 }}>
-                Point at the QR shown on the Mac.
-              </p>
-              <div className="scanner" id="scanner" />
-              {scannerError && (
-                <div className="error" style={{ fontSize: 12 }}>
-                  Camera unavailable: {scannerError}
-                  <button
-                    className="action"
-                    style={{ marginLeft: 8, padding: "4px 10px", fontSize: 12 }}
-                    onClick={() => setMode("code")}
-                  >
-                    Use code instead
-                  </button>
+            <div className="pair-body">
+              <div className="pair-scanner">
+                <div id="scanner" style={{ position: "absolute", inset: 0 }} />
+                {!cameraBlocked && (
+                  <>
+                    <div className="pair-scanner-grid" />
+                    <div className="pair-scanner-sweep" />
+                  </>
+                )}
+                {cameraBlocked && (
+                  <div className="pair-scanner-blocked">
+                    <div className="badge">!</div>
+                    <div className="title">Camera access is blocked</div>
+                    <div className="hint">
+                      Allow camera in your browser settings, or pair with a code
+                      instead.
+                    </div>
+                    <button onClick={() => setMode("code")}>Enter code instead</button>
+                  </div>
+                )}
+                <div className="pair-scanner-corners">
+                  <span className="tl" />
+                  <span className="tr" />
+                  <span className="bl" />
+                  <span className="br" />
                 </div>
-              )}
-            </>
+              </div>
+              <p className="pair-caption">
+                Point the camera at the QR code shown in the Mac app.
+              </p>
+              {error && <div className="pair-error">{error}</div>}
+            </div>
           ) : (
-            <div style={{ marginTop: 16 }}>
-              <label style={{ fontSize: 13, color: "#888" }}>Mac endpoint</label>
-              <input
-                className="name-input"
-                value={manualEndpoint}
-                onChange={(e) => setManualEndpoint(e.target.value)}
-                placeholder="host:port (e.g. 192.168.1.5:8787)"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-              <label style={{ fontSize: 13, color: "#888", display: "block", marginTop: 12 }}>
-                Pairing code
-              </label>
-              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <div className="pair-body">
+              <div className="pair-field">
+                <div className="pair-field-head">
+                  <label className="pair-field-label">Mac endpoint</label>
+                  <ReachStatus reach={reach} />
+                </div>
                 <input
-                  className="name-input"
-                  style={{ marginTop: 0 }}
-                  value={manualCode}
-                  onChange={(e) => setManualCode(e.target.value)}
-                  placeholder="paste from Mac"
+                  className="pair-input"
+                  value={endpoint}
+                  onChange={(e) => setEndpoint(e.target.value)}
+                  placeholder="host:port"
+                  spellCheck={false}
                   autoCapitalize="off"
                   autoCorrect="off"
-                  spellCheck={false}
                 />
-                <button
-                  className="action primary"
-                  onClick={useManualCode}
-                  disabled={!manualCode.trim() || !manualEndpoint.trim()}
-                >
-                  Use
-                </button>
               </div>
-              {error && <div className="error">{error}</div>}
+
+              <div className="pair-field">
+                <div className="pair-field-head">
+                  <label className="pair-field-label">Pairing code</label>
+                  <button className="pair-field-paste" onClick={pasteCode}>
+                    Paste
+                  </button>
+                </div>
+                <div className="pair-slots">
+                  {code.map((value, i) => (
+                    <input
+                      key={i}
+                      className={`pair-slot ${value ? "filled" : ""}`}
+                      value={value}
+                      onChange={(e) => updateSlot(i, e.target.value)}
+                      onKeyDown={(e) => slotKeyDown(i, e)}
+                      ref={(el) => {
+                        slotRefs.current[i] = el;
+                      }}
+                      maxLength={1}
+                      inputMode="text"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  ))}
+                </div>
+                <p className="pair-field-hint">
+                  Six characters, shown under Settings › Devices on the Mac.
+                </p>
+              </div>
+
+              {error && <div className="pair-error">{error}</div>}
+
+              <button
+                className={`pair-cta ${filled && parsedEndpoint && !busy ? "ready" : ""}`}
+                onClick={submitCode}
+                disabled={!filled || !parsedEndpoint || busy}
+              >
+                {busy ? "Pairing…" : "Pair device"}
+              </button>
             </div>
           )}
-        </>
-      )}
+        </div>
 
-      {target && (
-        <>
-          <div className="row">
-            <div>
-              <div className="title">{target.host}</div>
-              <div className="sub">port {target.port}</div>
-            </div>
-          </div>
-          <label style={{ fontSize: 13, color: "#888", marginTop: 12, display: "block" }}>
-            This device's name
-          </label>
-          <input
-            className="name-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. My iPhone"
-          />
-          {error && <div className="error">{error}</div>}
-          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-            <button className="action" onClick={() => setTarget(null)} disabled={busy}>
-              Back
-            </button>
-            <button
-              className="action primary"
-              onClick={doPair}
-              disabled={busy || !name.trim()}
-            >
-              {busy ? "Pairing…" : "Pair"}
-            </button>
-          </div>
-        </>
-      )}
+        <div className="pair-footer">
+          <span>Both devices must be on the same network.</span>
+        </div>
+      </div>
     </div>
   );
+}
+
+function ReachStatus({ reach }: { reach: Reach }) {
+  if (reach === "reachable")
+    return (
+      <div className="pair-field-status ok">
+        <span className="dot" />
+        <span>reachable</span>
+      </div>
+    );
+  if (reach === "unreachable")
+    return (
+      <div className="pair-field-status bad">
+        <span className="dot" />
+        <span>unreachable</span>
+      </div>
+    );
+  if (reach === "probing")
+    return (
+      <div className="pair-field-status" style={{ color: "#7d858e" }}>
+        <span>checking…</span>
+      </div>
+    );
+  return null;
 }
 
 function defaultDeviceName(): string {

@@ -54,15 +54,13 @@ export function App() {
 
   if (pairing || hosts.length === 0) {
     return (
-      <div className="app">
-        <PairScreen
-          onPaired={() => {
-            refresh();
-            setPairing(false);
-          }}
-          onCancel={hosts.length > 0 ? () => setPairing(false) : undefined}
-        />
-      </div>
+      <PairScreen
+        onPaired={() => {
+          refresh();
+          setPairing(false);
+        }}
+        onCancel={hosts.length > 0 ? () => setPairing(false) : undefined}
+      />
     );
   }
 
