@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
 import { Elysia, t } from "elysia";
-import { runOrEmpty, run } from "../util/shell";
+import { runOrEmpty } from "../util/shell";
 import { deviceAuth } from "../auth";
 
 const HOME = homedir();
@@ -127,6 +127,56 @@ async function enrich(rows: RawRow[]): Promise<ListenPort[]> {
   });
 }
 
+const OWN_PID = process.pid;
+const OWN_PGID = await (async () => {
+  const out = await runOrEmpty("ps", ["-o", "pgid=", "-p", String(OWN_PID)]);
+  const n = Number(out.trim());
+  return Number.isFinite(n) && n > 0 ? n : OWN_PID;
+})();
+
+async function listeningPids(port: number): Promise<string[]> {
+  return (await runOrEmpty("lsof", ["-ti", `:${port}`]))
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+}
+
+async function pgidOf(pid: string): Promise<number | null> {
+  const out = await runOrEmpty("ps", ["-o", "pgid=", "-p", pid]);
+  const n = Number(out.trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+type KillTarget = { pid: string; pgid: number | null };
+
+async function targetsFor(pids: string[]): Promise<KillTarget[]> {
+  return Promise.all(pids.map(async (pid) => ({ pid, pgid: await pgidOf(pid) })));
+}
+
+// Send a signal to each unique process group so children die with the parent.
+// Refuses to touch our own pgid — falls back to killing the individual pid.
+async function sendSignal(sig: "TERM" | "KILL", targets: KillTarget[]): Promise<void> {
+  const groups = new Set<number>();
+  const individual: string[] = [];
+  for (const t of targets) {
+    if (Number(t.pid) === OWN_PID) continue;
+    if (t.pgid === OWN_PGID) {
+      individual.push(t.pid);
+      continue;
+    }
+    if (t.pgid && t.pgid > 1) groups.add(t.pgid);
+    else individual.push(t.pid);
+  }
+  for (const g of groups) {
+    await runOrEmpty("kill", [`-${sig}`, `-${g}`]);
+  }
+  for (const pid of individual) {
+    await runOrEmpty("kill", [`-${sig}`, pid]);
+  }
+}
+
+const GRACE_MS = 500;
+
 export const portsRoutes = new Elysia({ prefix: "/ports" })
   .use(deviceAuth)
   .get("/", async () => {
@@ -138,13 +188,19 @@ export const portsRoutes = new Elysia({ prefix: "/ports" })
   .post(
     "/kill",
     async ({ body }) => {
-      const pids = (await runOrEmpty("lsof", ["-ti", `:${body.port}`]))
-        .trim()
-        .split("\n")
-        .filter(Boolean);
-      if (pids.length === 0) return { ok: true, killed: 0 };
-      await run("kill", ["-9", ...pids]);
-      return { ok: true, killed: pids.length };
+      const pids = await listeningPids(body.port);
+      if (pids.length === 0) return { ok: true, killed: 0, escalated: false };
+
+      await sendSignal("TERM", await targetsFor(pids));
+      await new Promise((r) => setTimeout(r, GRACE_MS));
+
+      const remaining = await listeningPids(body.port);
+      if (remaining.length === 0) {
+        return { ok: true, killed: pids.length, escalated: false };
+      }
+
+      await sendSignal("KILL", await targetsFor(remaining));
+      return { ok: true, killed: pids.length, escalated: true };
     },
     { body: t.Object({ port: t.Number() }) },
   );
