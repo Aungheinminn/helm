@@ -78,6 +78,38 @@ nav button.active:hover { background: #44444f; }
 
 main { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
 
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 0 12px;
+}
+.filters button {
+  background: #1c1c20;
+  color: #ccc;
+  border: 0;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.filters button:hover { background: #26262c; color: #fff; }
+.filters button.active { background: #3a3a44; color: #fff; }
+.filters button.active:hover { background: #44444f; }
+.filters-sep {
+  width: 1px;
+  height: 18px;
+  background: #2a2a30;
+  margin: 0 4px;
+}
+.filter-count {
+  color: #888;
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.filters button.active .filter-count { color: #bbb; }
+
 .row {
   display: flex;
   justify-content: space-between;
