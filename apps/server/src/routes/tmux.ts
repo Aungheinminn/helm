@@ -52,4 +52,14 @@ export const tmuxRoutes = new Elysia({ prefix: "/tmux" })
       return { ok: true };
     },
     { body: t.Object({ name: t.String() }) },
+  )
+  .post(
+    "/send",
+    async ({ body }) => {
+      const target = `=${body.name}:`;
+      await run("tmux", ["send-keys", "-l", "-t", target, body.keys]);
+      await run("tmux", ["send-keys", "-t", target, "Enter"]);
+      return { ok: true };
+    },
+    { body: t.Object({ name: t.String(), keys: t.String() }) },
   );
