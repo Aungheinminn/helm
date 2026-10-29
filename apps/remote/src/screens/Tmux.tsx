@@ -45,7 +45,13 @@ export function TmuxScreen({ host }: { host: PairedHost }) {
   }
 
   async function sendClaude(name: string) {
-    await api.tmux.send.post({ name, keys: "claude rc" });
+    try {
+      const { error } = await api.tmux.send.post({ name, keys: "claude rc" });
+      if (error) throw new Error(String(error.value ?? error.status));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   return (
