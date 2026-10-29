@@ -44,6 +44,10 @@ export function TmuxScreen({ host }: { host: PairedHost }) {
     load();
   }
 
+  async function sendClaude(name: string) {
+    await api.tmux.send.post({ name, keys: "claude rc" });
+  }
+
   return (
     <div>
       {error && <div className="error">{error}</div>}
@@ -70,6 +74,9 @@ export function TmuxScreen({ host }: { host: PairedHost }) {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
+            <button className="action" onClick={() => sendClaude(s.name)}>
+              claude rc
+            </button>
             {s.attached && (
               <button className="action" onClick={() => detach(s.name)}>
                 Detach
