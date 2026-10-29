@@ -54,10 +54,10 @@ export const tmuxRoutes = new Elysia({ prefix: "/tmux" })
     { body: t.Object({ name: t.String() }) },
   )
   .post(
-    "/run",
+    "/send",
     async ({ body }) => {
-      await run("tmux", ["new-window", "-t", body.name, body.command]);
+      await run("tmux", ["send-keys", "-t", body.name, body.keys, "Enter"]);
       return { ok: true };
     },
-    { body: t.Object({ name: t.String(), command: t.String() }) },
+    { body: t.Object({ name: t.String(), keys: t.String() }) },
   );

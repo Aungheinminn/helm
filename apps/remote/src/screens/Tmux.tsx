@@ -45,7 +45,7 @@ export function TmuxScreen({ host }: { host: PairedHost }) {
   }
 
   async function sendClaude(name: string) {
-    await api.tmux.run.post({ name, command: "claude rc" });
+    await api.tmux.send.post({ name, keys: "claude rc" });
   }
 
   return (
