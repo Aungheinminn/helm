@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { appsRoutes } from "./routes/apps";
 import { portsRoutes } from "./routes/ports";
+import { systemRoutes } from "./routes/system";
 import { pairRoutes } from "./routes/pair";
 import { adminRoutes } from "./routes/admin";
 import { config } from "./config";
@@ -14,6 +15,7 @@ const app = new Elysia()
   .get("/health", () => ({ ok: true }))
   .use(appsRoutes)
   .use(portsRoutes)
+  .use(systemRoutes)
   .use(pairRoutes)
   .use(adminRoutes);
 
