@@ -1,17 +1,24 @@
 import { app, Tray, Menu, BrowserWindow, nativeImage, ipcMain, screen, dialog } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import QRCode from "qrcode";
 
 const PORT = 8787;
-const ADMIN_TOKEN = randomBytes(32).toString("base64url");
+const DATA_DIR = join(homedir(), ".helm");
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+
+// The server owns creating this file (see server/src/config.ts); it exists once
+// /health responds, so the tray only reads it.
+function readAdminToken(): string {
+  return readFileSync(join(DATA_DIR, "admin-token"), "utf8").trim();
+}
 
 let tray: Tray | null = null;
 let configWindow: BrowserWindow | null = null;
 let serverProc: ChildProcess | null = null;
+let adminToken = "";
 
 app.dock?.hide();
 
@@ -44,12 +51,12 @@ async function startServer(): Promise<void> {
 
   const staticDir = join(app.getAppPath(), "..", "remote", "dist");
 
+  const { HELM_ADMIN_TOKEN: _ignored, ...inheritedEnv } = process.env;
   serverProc = spawn("bun", ["run", "--hot", serverEntry], {
     env: {
-      ...process.env,
+      ...inheritedEnv,
       HELM_PORT: String(PORT),
-      HELM_ADMIN_TOKEN: ADMIN_TOKEN,
-      HELM_DATA_DIR: join(homedir(), ".helm"),
+      HELM_DATA_DIR: DATA_DIR,
       HELM_STATIC_DIR: staticDir,
     },
     stdio: ["ignore", "inherit", "inherit"],
@@ -64,7 +71,10 @@ async function startServer(): Promise<void> {
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`${BASE_URL}/health`);
-      if (res.ok) return;
+      if (res.ok) {
+        adminToken = readAdminToken();
+        return;
+      }
     } catch {
       /* retry */
     }
@@ -84,7 +94,7 @@ async function adminFetch(path: string, init?: RequestInit): Promise<Response> {
     ...init,
     headers: {
       ...init?.headers,
-      Authorization: `Bearer ${ADMIN_TOKEN}`,
+      Authorization: `Bearer ${adminToken}`,
       "Content-Type": "application/json",
     },
   });
