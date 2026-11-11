@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { findByToken, touchDevice, type Device } from "./store";
 import { config } from "./config";
+import { tokensEqual } from "./util/tokens";
 
 export const deviceAuth = new Elysia({ name: "deviceAuth" }).derive(
   { as: "scoped" },
@@ -20,6 +21,6 @@ export const adminAuth = new Elysia({ name: "adminAuth" }).onBeforeHandle(
   ({ headers, status }) => {
     const header = headers.authorization ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-    if (token !== config.adminToken) return status(401, { error: "unauthorized" });
+    if (!tokensEqual(config.adminToken, token)) return status(401, { error: "unauthorized" });
   },
 );
