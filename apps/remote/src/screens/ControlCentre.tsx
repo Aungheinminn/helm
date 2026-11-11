@@ -2,8 +2,9 @@ import { useState } from "react";
 import type { PairedHost } from "../store";
 import { AppsScreen } from "./Apps";
 import { PortsScreen } from "./Ports";
+import { SystemScreen } from "./System";
 
-type Tab = "apps" | "ports";
+type Tab = "apps" | "ports" | "system";
 
 type Props = {
   host: PairedHost;
@@ -27,7 +28,7 @@ export function ControlCentre({ host, onDisconnect }: Props) {
         </div>
       </header>
       <nav>
-        {(["apps", "ports"] as Tab[]).map((t) => (
+        {(["apps", "ports", "system"] as Tab[]).map((t) => (
           <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
             {t}
           </button>
@@ -36,6 +37,7 @@ export function ControlCentre({ host, onDisconnect }: Props) {
       <main>
         {tab === "apps" && <AppsScreen host={host} />}
         {tab === "ports" && <PortsScreen host={host} />}
+        {tab === "system" && <SystemScreen host={host} />}
       </main>
     </>
   );
