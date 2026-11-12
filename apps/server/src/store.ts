@@ -21,6 +21,10 @@ const TOUCH_PERSIST_INTERVAL_MS = 60_000;
 let cache: StoreShape | null = null;
 let loading: Promise<StoreShape> | null = null;
 let writeChain: Promise<void> = Promise.resolve();
+// When each device's lastSeenAt last reached disk. Comparing against the
+// in-memory lastSeenAt instead would never persist for a device that checks in
+// more often than the interval, since every touch resets it.
+const persistedSeenAt = new Map<string, number>();
 
 async function load(): Promise<StoreShape> {
   if (cache) return cache;
@@ -66,6 +70,7 @@ export async function addDevice(name: string): Promise<Device> {
 export async function revokeDevice(id: string): Promise<void> {
   const s = await load();
   s.devices = s.devices.filter((d) => d.id !== id);
+  persistedSeenAt.delete(id);
   await persist();
 }
 
@@ -79,7 +84,12 @@ export async function touchDevice(id: string): Promise<void> {
   const d = s.devices.find((x) => x.id === id);
   if (!d) return;
   const now = Date.now();
-  const stale = now - d.lastSeenAt >= TOUCH_PERSIST_INTERVAL_MS;
+  const lastPersisted = persistedSeenAt.get(id) ?? d.lastSeenAt;
   d.lastSeenAt = now;
-  if (stale) await persist();
+  if (now - lastPersisted >= TOUCH_PERSIST_INTERVAL_MS) {
+    persistedSeenAt.set(id, now);
+    await persist();
+  } else {
+    persistedSeenAt.set(id, lastPersisted);
+  }
 }
