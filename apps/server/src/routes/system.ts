@@ -2,37 +2,14 @@ import { Elysia, t } from "elysia";
 import { run, runOrEmpty } from "../util/shell";
 import { deviceAuth } from "../auth";
 import { refresh, registerTopic } from "../live";
-
-type Volume = { level: number | null; muted: boolean };
-
-type Battery = {
-  percent: number;
-  state: string;
-  onAC: boolean;
-  timeRemaining: string | null;
-};
+import { parseBattery, parseVolume, type Battery, type Volume } from "../parse";
 
 async function readVolume(): Promise<Volume> {
-  const raw = await runOrEmpty("osascript", ["-e", "get volume settings"]);
-  const level = raw.match(/output volume:(\d+)/);
-  // Outputs without software volume (HDMI, some USB DACs) report "missing value".
-  return {
-    level: level ? Number(level[1]) : null,
-    muted: /output muted:true/.test(raw),
-  };
+  return parseVolume(await runOrEmpty("osascript", ["-e", "get volume settings"]));
 }
 
 async function readBattery(): Promise<Battery | null> {
-  const raw = await runOrEmpty("pmset", ["-g", "batt"]);
-  const m = raw.match(/(\d+)%;\s*([^;]+);\s*(\S+)?/);
-  if (!m) return null;
-  const time = m[3] && /^\d+:\d+$/.test(m[3]) && m[3] !== "0:00" ? m[3] : null;
-  return {
-    percent: Number(m[1]),
-    state: m[2].trim(),
-    onAC: raw.includes("'AC Power'"),
-    timeRemaining: time,
-  };
+  return parseBattery(await runOrEmpty("pmset", ["-g", "batt"]));
 }
 
 let caffeinate: ReturnType<typeof Bun.spawn> | null = null;

@@ -10,7 +10,8 @@
     "dev:server": "bun run --filter server dev",
     "dev:remote": "bun run --filter remote dev",
     "build": "bun run --filter agent build && bun run --filter remote build",
-    "typecheck": "bun run --filter '*' typecheck"
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun test"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

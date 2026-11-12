@@ -5,6 +5,7 @@ import { Elysia, t } from "elysia";
 import { runOrEmpty } from "../util/shell";
 import { deviceAuth } from "../auth";
 import { refresh, registerTopic } from "../live";
+import { isLoopbackAddress, parseLsof, type LsofRow } from "../parse";
 
 const HOME = homedir();
 
@@ -20,8 +21,6 @@ type ListenPort = {
   projectRoot: string | null;
 };
 
-type RawRow = { pid: number; command: string; port: number; user: string; address: string };
-
 const PROJECT_MARKERS = [
   ".git",
   "package.json",
@@ -31,36 +30,6 @@ const PROJECT_MARKERS = [
   "deno.json",
   "Gemfile",
 ];
-
-// Reachable via localhost: explicit loopback, wildcard, or 0.0.0.0
-function isLoopbackAddress(addr: string): boolean {
-  if (addr.startsWith("127.")) return true;
-  if (addr.startsWith("[::1]") || addr === "::1") return true;
-  if (addr.startsWith("*:")) return true;
-  if (addr.startsWith("0.0.0.0:")) return true;
-  if (addr.startsWith("[::]")) return true;
-  return false;
-}
-
-function parseLsof(raw: string): RawRow[] {
-  const out: RawRow[] = [];
-  const lines = raw.trim().split("\n").slice(1);
-  for (const line of lines) {
-    const cols = line.split(/\s+/);
-    if (cols.length < 9) continue;
-    const [command, pidStr, user, , , , , , addr] = cols;
-    const match = addr.match(/:(\d+)$/);
-    if (!match) continue;
-    out.push({
-      pid: Number(pidStr),
-      command,
-      user,
-      port: Number(match[1]),
-      address: addr,
-    });
-  }
-  return out;
-}
 
 type CwdInfo = { cwd: string | null; projectRoot: string | null; project: string | null };
 const cwdCache = new Map<number, { info: CwdInfo; expires: number }>();
@@ -104,7 +73,7 @@ async function cwdInfoFor(pid: number): Promise<CwdInfo> {
   return info;
 }
 
-async function enrich(rows: RawRow[]): Promise<ListenPort[]> {
+async function enrich(rows: LsofRow[]): Promise<ListenPort[]> {
   const uniquePids = [...new Set(rows.map((r) => r.pid))];
   const infos = new Map<number, CwdInfo>();
   await Promise.all(
