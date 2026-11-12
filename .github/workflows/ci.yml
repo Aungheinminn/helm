@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # The tests never call macOS-only tools (AppleScript, pmset), so the
+    # cheaper Linux runner is enough.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.12
+
+      - name: Install
+        run: bun install --frozen-lockfile
+        env:
+          # Typechecking the tray only needs Electron's types, not its ~100MB binary.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test

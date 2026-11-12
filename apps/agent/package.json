@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "bun run build && electron .",
     "build": "tsc && bun ./scripts/copy-assets.mjs",
-    "start": "electron ."
+    "start": "electron .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "qrcode": "^1.5.4"
