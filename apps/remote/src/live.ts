@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { reportStatus } from "./api";
 import type { PairedHost } from "./store";
+import { takeFrames } from "./sse";
 
 export type Topic = "apps" | "ports" | "system";
 
@@ -29,18 +30,9 @@ async function readStream(
   for (;;) {
     const { value, done } = await reader.read();
     if (done) return;
-    buffer += value;
-    let sep: number;
-    while ((sep = buffer.indexOf("\n\n")) !== -1) {
-      const frame = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      const data = frame
-        .split("\n")
-        .filter((l) => l.startsWith("data: "))
-        .map((l) => l.slice(6))
-        .join("\n");
-      if (data) onData(data);
-    }
+    const { data, rest } = takeFrames(buffer + value);
+    buffer = rest;
+    data.forEach(onData);
   }
 }
 
