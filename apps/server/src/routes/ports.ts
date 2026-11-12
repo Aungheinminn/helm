@@ -4,6 +4,7 @@ import { basename, dirname } from "node:path";
 import { Elysia, t } from "elysia";
 import { runOrEmpty } from "../util/shell";
 import { deviceAuth } from "../auth";
+import { refresh, registerTopic } from "../live";
 
 const HOME = homedir();
 
@@ -177,14 +178,17 @@ async function sendSignal(sig: "TERM" | "KILL", targets: KillTarget[]): Promise<
 
 const GRACE_MS = 500;
 
+async function listPorts(): Promise<{ ports: ListenPort[] }> {
+  const raw = await runOrEmpty("lsof", ["-iTCP", "-sTCP:LISTEN", "-P", "-n"]);
+  const enriched = await enrich(parseLsof(raw));
+  return { ports: enriched.filter((p) => p.projectRoot && p.isLoopback) };
+}
+
+registerTopic("ports", 3000, listPorts);
+
 export const portsRoutes = new Elysia({ prefix: "/ports" })
   .use(deviceAuth)
-  .get("/", async () => {
-    const raw = await runOrEmpty("lsof", ["-iTCP", "-sTCP:LISTEN", "-P", "-n"]);
-    const enriched = await enrich(parseLsof(raw));
-    const ports = enriched.filter((p) => p.projectRoot && p.isLoopback);
-    return { ports };
-  })
+  .get("/", listPorts)
   .post(
     "/kill",
     async ({ body }) => {
@@ -196,10 +200,12 @@ export const portsRoutes = new Elysia({ prefix: "/ports" })
 
       const remaining = await listeningPids(body.port);
       if (remaining.length === 0) {
+        refresh("ports");
         return { ok: true, killed: pids.length, escalated: false };
       }
 
       await sendSignal("KILL", await targetsFor(remaining));
+      refresh("ports");
       return { ok: true, killed: pids.length, escalated: true };
     },
     { body: t.Object({ port: t.Number() }) },
