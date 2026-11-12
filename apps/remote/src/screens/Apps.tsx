@@ -1,31 +1,17 @@
 import { useEffect, useState } from "react";
 import { clientFor, reportStatus } from "../api";
+import { useLive } from "../live";
 import type { PairedHost } from "../store";
 import { CURATED_APPS, type CuratedApp } from "../apps-registry";
 
 export function AppsScreen({ host }: { host: PairedHost }) {
-  const [running, setRunning] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const live = useLive<{ running: string[] }>(host, "apps");
+  const running = live.data?.running ?? [];
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? live.error;
   const [icons, setIcons] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const api = clientFor(host);
-
-  async function load() {
-    try {
-      const { data, error } = await api.apps.get();
-      if (error) throw new Error(String(error.value ?? error.status));
-      setRunning(data.running);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
-  }, [host.id]);
 
   useEffect(() => {
     setIcons({});
@@ -70,9 +56,9 @@ export function AppsScreen({ host }: { host: PairedHost }) {
       } else {
         await api.apps.open.post({ name: app.launchName });
       }
-      await load();
+      setActionError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setActionError(e instanceof Error ? e.message : String(e));
     } finally {
       setPending((p) => ({ ...p, [app.key]: false }));
     }
@@ -80,7 +66,6 @@ export function AppsScreen({ host }: { host: PairedHost }) {
 
   async function quitOther(name: string) {
     await api.apps.quit.post({ name });
-    load();
   }
 
   const otherRunning = running.filter(

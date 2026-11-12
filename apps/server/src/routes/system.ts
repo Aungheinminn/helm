@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { run, runOrEmpty } from "../util/shell";
 import { deviceAuth } from "../auth";
+import { refresh, registerTopic } from "../live";
 
 type Volume = { level: number | null; muted: boolean };
 
@@ -69,12 +70,16 @@ async function setClipboard(text: string): Promise<void> {
   }
 }
 
+async function readSystem() {
+  const [volume, battery] = await Promise.all([readVolume(), readBattery()]);
+  return { volume, battery, keepAwake: isKeepingAwake() };
+}
+
+registerTopic("system", 5000, readSystem);
+
 export const systemRoutes = new Elysia({ prefix: "/system" })
   .use(deviceAuth)
-  .get("/", async () => {
-    const [volume, battery] = await Promise.all([readVolume(), readBattery()]);
-    return { volume, battery, keepAwake: isKeepingAwake() };
-  })
+  .get("/", readSystem)
   .post(
     "/volume",
     async ({ body }) => {
@@ -84,6 +89,7 @@ export const systemRoutes = new Elysia({ prefix: "/system" })
       if (body.muted !== undefined) {
         await run("osascript", ["-e", `set volume output muted ${body.muted}`]);
       }
+      refresh("system");
       return { volume: await readVolume() };
     },
     {
@@ -97,6 +103,7 @@ export const systemRoutes = new Elysia({ prefix: "/system" })
     "/keep-awake",
     ({ body }) => {
       setKeepAwake(body.on);
+      refresh("system");
       return { keepAwake: isKeepingAwake() };
     },
     { body: t.Object({ on: t.Boolean() }) },

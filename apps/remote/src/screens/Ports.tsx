@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { clientFor } from "../api";
+import { useLive } from "../live";
 import type { PairedHost } from "../store";
 
 type Port = {
@@ -17,29 +18,13 @@ type Port = {
 const ROOT_KEY = (id: string) => `helm:ports:root:${id}`;
 
 export function PortsScreen({ host }: { host: PairedHost }) {
-  const [ports, setPorts] = useState<Port[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const live = useLive<{ ports: Port[] }>(host, "ports");
+  const ports = useMemo(() => live.data?.ports ?? [], [live.data]);
+  const error = live.error;
   const [selectedRoot, setSelectedRoot] = useState<string | null>(() =>
     localStorage.getItem(ROOT_KEY(host.id)),
   );
   const api = clientFor(host);
-
-  async function load() {
-    try {
-      const { data, error } = await api.ports.get();
-      if (error) throw new Error(String(error.value ?? error.status));
-      setPorts(data.ports);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 3000);
-    return () => clearInterval(t);
-  }, [host.id]);
 
   useEffect(() => {
     if (selectedRoot) localStorage.setItem(ROOT_KEY(host.id), selectedRoot);
@@ -48,7 +33,6 @@ export function PortsScreen({ host }: { host: PairedHost }) {
 
   async function killPort(port: number) {
     await api.ports.kill.post({ port });
-    load();
   }
 
   const roots = useMemo(() => {

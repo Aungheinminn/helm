@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { run, runOrEmpty } from "../util/shell";
 import { deviceAuth } from "../auth";
 import { config } from "../config";
+import { refresh, registerTopic } from "../live";
 
 const APP_SEARCH_DIRS = [
   "/Applications",
@@ -39,27 +40,35 @@ async function resolveIcns(appBundle: string): Promise<string | null> {
   return null;
 }
 
+async function runningApps(): Promise<{ running: string[] }> {
+  const raw = await runOrEmpty("osascript", [
+    "-e",
+    'tell application "System Events" to get name of (every process where background only is false)',
+  ]);
+  const running = raw
+    .trim()
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return { running };
+}
+
+registerTopic("apps", 5000, runningApps);
+
+// Launching or quitting can take a moment to show in the process list.
+const APP_SETTLE_MS = 1500;
+
 const iconCacheDir = join(config.dataDir, "icon-cache");
 mkdirSync(iconCacheDir, { recursive: true });
 
 export const appsRoutes = new Elysia({ prefix: "/apps" })
   .use(deviceAuth)
-  .get("/", async () => {
-    const raw = await runOrEmpty("osascript", [
-      "-e",
-      'tell application "System Events" to get name of (every process where background only is false)',
-    ]);
-    const running = raw
-      .trim()
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    return { running };
-  })
+  .get("/", runningApps)
   .post(
     "/open",
     async ({ body }) => {
       await run("open", ["-a", body.name]);
+      refresh("apps", APP_SETTLE_MS);
       return { ok: true };
     },
     { body: t.Object({ name: t.String() }) },
@@ -68,6 +77,7 @@ export const appsRoutes = new Elysia({ prefix: "/apps" })
     "/quit",
     async ({ body }) => {
       await run("osascript", ["-e", `quit app "${body.name.replace(/"/g, '\\"')}"`]);
+      refresh("apps", APP_SETTLE_MS);
       return { ok: true };
     },
     { body: t.Object({ name: t.String() }) },

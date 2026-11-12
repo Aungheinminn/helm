@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { clientFor } from "../api";
+import { useLive } from "../live";
 import type { PairedHost } from "../store";
 
 type Volume = { level: number | null; muted: boolean };
 type Battery = { percent: number; state: string; onAC: boolean; timeRemaining: string | null };
+type SystemState = { volume: Volume; battery: Battery | null; keepAwake: boolean };
 
-// After the user drags the slider, ignore polled volume for a moment so a poll
-// that was already in flight doesn't snap the thumb back to the old level.
+// After the user drags the slider, ignore pushed volume for a moment so an update
+// collected mid-drag doesn't snap the thumb back to an older level.
 const SLIDER_HOLD_MS = 1500;
 const VOLUME_DEBOUNCE_MS = 120;
 
@@ -27,7 +29,7 @@ export function SystemScreen({ host }: { host: PairedHost }) {
   const [volume, setVolume] = useState<Volume | null>(null);
   const [battery, setBattery] = useState<Battery | null>(null);
   const [keepAwake, setKeepAwake] = useState<boolean | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setError] = useState<string | null>(null);
   const [clip, setClip] = useState("");
   const [clipSent, setClipSent] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -35,27 +37,23 @@ export function SystemScreen({ host }: { host: PairedHost }) {
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const api = clientFor(host);
 
-  async function load() {
-    try {
-      const { data, error } = await api.system.get();
-      if (error) throw new Error(errorText(error));
-      if (Date.now() - lastDrag.current > SLIDER_HOLD_MS) setVolume(data.volume);
-      setBattery(data.battery);
-      setKeepAwake(data.keepAwake);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
+  const live = useLive<SystemState>(host, "system");
+  const error = actionError ?? live.error;
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, 5000);
-    return () => {
-      clearInterval(t);
+    const data = live.data;
+    if (!data) return;
+    if (Date.now() - lastDrag.current > SLIDER_HOLD_MS) setVolume(data.volume);
+    setBattery(data.battery);
+    setKeepAwake(data.keepAwake);
+  }, [live.data]);
+
+  useEffect(
+    () => () => {
       if (debounce.current) clearTimeout(debounce.current);
-    };
-  }, [host.id]);
+    },
+    [],
+  );
 
   function onSlide(level: number) {
     lastDrag.current = Date.now();
