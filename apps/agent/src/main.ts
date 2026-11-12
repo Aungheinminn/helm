@@ -31,14 +31,29 @@ app.whenReady().then(async () => {
     return;
   }
 
-  tray = new Tray(nativeImage.createEmpty());
-  tray.setTitle("⛵");
+  // Electron loads the @2x variant automatically on Retina displays.
+  const icon = nativeImage.createFromPath(join(__dirname, "assets", "trayTemplate.png"));
+  icon.setTemplateImage(true);
+  tray = new Tray(icon);
   tray.setToolTip("Helm");
   tray.on("click", () => toggleConfigWindow());
   tray.on("right-click", () => showContextMenu());
 
   registerIpc();
+  await openIfNothingPaired();
 });
+
+// A crowded menu bar can hide the tray icon behind the notch, so don't make a
+// first-time user hunt for it: show the pairing window straight away.
+async function openIfNothingPaired() {
+  try {
+    const res = await adminFetch("/_admin/state");
+    const state = (await res.json()) as { devices: unknown[] };
+    if (state.devices.length === 0) toggleConfigWindow(true);
+  } catch {
+    /* the tray still works; the user can open it manually */
+  }
+}
 
 app.on("window-all-closed", () => {
   // stay running as a tray-only app

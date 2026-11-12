@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { isLoopbackAddress, parseBattery, parseLsof, parseVolume } from "../src/parse";
+import {
+  isLoopbackAddress,
+  parseBattery,
+  parseBrightness,
+  parseLsof,
+  parseVolume,
+} from "../src/parse";
 
 describe("parseVolume", () => {
   test("reads level and mute state", () => {
@@ -110,4 +116,21 @@ describe("isLoopbackAddress", () => {
   ])("%s → %p", (addr, expected) => {
     expect(isLoopbackAddress(addr)).toBe(expected);
   });
+});
+
+describe("parseBrightness", () => {
+  test.each([
+    ["0.4851813018321991\n", 49],
+    ["1", 100],
+    ["0", 0],
+  ])("%p → %p%", (raw, expected) => {
+    expect(parseBrightness(raw)).toBe(expected);
+  });
+
+  test.each([["none"], [""], ["1.5"], ["-0.1"], ["NaN"]])(
+    "%p means no software brightness",
+    (raw) => {
+      expect(parseBrightness(raw)).toBeNull();
+    },
+  );
 });

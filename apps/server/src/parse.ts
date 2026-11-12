@@ -62,3 +62,11 @@ export function isLoopbackAddress(addr: string): boolean {
   if (addr.startsWith("[::]")) return true;
   return false;
 }
+
+// Parses the brightness script's output: a 0–1 float, or "none" when the main
+// display has no software brightness (most external monitors).
+export function parseBrightness(raw: string): number | null {
+  const n = Number.parseFloat(raw.trim());
+  if (!Number.isFinite(n) || n < 0 || n > 1) return null;
+  return Math.round(n * 100);
+}

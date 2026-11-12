@@ -3,10 +3,12 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { createApp } from "./app";
 import { config } from "./config";
+import { applyLaunchSettings } from "./routes/system";
 
 export type { App } from "./app";
 
 const app = createApp();
+applyLaunchSettings();
 
 if (config.staticDir && existsSync(join(config.staticDir, "index.html"))) {
   const indexPath = join(config.staticDir, "index.html");
