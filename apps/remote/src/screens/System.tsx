@@ -5,7 +5,13 @@ import type { PairedHost } from "../store";
 
 type Volume = { level: number | null; muted: boolean };
 type Battery = { percent: number; state: string; onAC: boolean; timeRemaining: string | null };
-type SystemState = { volume: Volume; battery: Battery | null; keepAwake: boolean };
+type SystemState = {
+  volume: Volume;
+  battery: Battery | null;
+  brightness: number | null;
+  keepAwake: boolean;
+  keepAwakeAtLaunch: boolean;
+};
 
 // After the user drags the slider, ignore pushed volume for a moment so an update
 // collected mid-drag doesn't snap the thumb back to an older level.
@@ -16,6 +22,26 @@ function errorText(error: { status: unknown; value: unknown }): string {
   const v = error.value as { error?: string } | string | undefined;
   if (v && typeof v === "object" && v.error) return v.error;
   return String(v ?? error.status);
+}
+
+// navigator.clipboard needs HTTPS, and Helm is served over plain HTTP on the LAN,
+// so fall back to the old select-and-copy, which works inside a tap handler.
+function copyToPhone(text: string): boolean {
+  if (navigator.clipboard && window.isSecureContext) {
+    void navigator.clipboard.writeText(text);
+    return true;
+  }
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.setAttribute("readonly", "");
+  el.style.position = "fixed";
+  el.style.opacity = "0";
+  document.body.appendChild(el);
+  el.select();
+  el.setSelectionRange(0, text.length);
+  const ok = document.execCommand("copy");
+  el.remove();
+  return ok;
 }
 
 function batteryLine(b: Battery): string {
@@ -29,6 +55,12 @@ export function SystemScreen({ host }: { host: PairedHost }) {
   const [volume, setVolume] = useState<Volume | null>(null);
   const [battery, setBattery] = useState<Battery | null>(null);
   const [keepAwake, setKeepAwake] = useState<boolean | null>(null);
+  const [keepAwakeAtLaunch, setKeepAwakeAtLaunch] = useState(false);
+  const [brightness, setBrightness] = useState<number | null>(null);
+  const [macClip, setMacClip] = useState<{ text: string; truncated: boolean } | null>(null);
+  const [macClipCopied, setMacClipCopied] = useState(false);
+  const lastBrightnessDrag = useRef(0);
+  const brightnessDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [actionError, setError] = useState<string | null>(null);
   const [clip, setClip] = useState("");
   const [clipSent, setClipSent] = useState(false);
@@ -44,13 +76,16 @@ export function SystemScreen({ host }: { host: PairedHost }) {
     const data = live.data;
     if (!data) return;
     if (Date.now() - lastDrag.current > SLIDER_HOLD_MS) setVolume(data.volume);
+    if (Date.now() - lastBrightnessDrag.current > SLIDER_HOLD_MS) setBrightness(data.brightness);
     setBattery(data.battery);
     setKeepAwake(data.keepAwake);
+    setKeepAwakeAtLaunch(data.keepAwakeAtLaunch);
   }, [live.data]);
 
   useEffect(
     () => () => {
       if (debounce.current) clearTimeout(debounce.current);
+      if (brightnessDebounce.current) clearTimeout(brightnessDebounce.current);
     },
     [],
   );
@@ -63,6 +98,58 @@ export function SystemScreen({ host }: { host: PairedHost }) {
       const { error } = await api.system.volume.post({ level, muted: false });
       if (error) setError(errorText(error));
     }, VOLUME_DEBOUNCE_MS);
+  }
+
+  function onBrightness(level: number) {
+    lastBrightnessDrag.current = Date.now();
+    setBrightness(level);
+    if (brightnessDebounce.current) clearTimeout(brightnessDebounce.current);
+    brightnessDebounce.current = setTimeout(async () => {
+      const { error } = await api.system.brightness.post({ level });
+      if (error) setError(errorText(error));
+    }, VOLUME_DEBOUNCE_MS);
+  }
+
+  async function toggleKeepAwakeAtLaunch() {
+    const atLaunch = !keepAwakeAtLaunch;
+    setKeepAwakeAtLaunch(atLaunch);
+    // Ticking "always on" with the switch still off would look like it did nothing.
+    const { data, error } = await api.system["keep-awake"].post(
+      atLaunch ? { atLaunch, on: true } : { atLaunch },
+    );
+    if (error) {
+      setError(errorText(error));
+      setKeepAwakeAtLaunch(!atLaunch);
+    } else {
+      setKeepAwakeAtLaunch(data.keepAwakeAtLaunch);
+      setKeepAwake(data.keepAwake);
+    }
+  }
+
+  async function fetchMacClip() {
+    setBusy("macclip");
+    try {
+      const { data, error } = await api.system.clipboard.get();
+      if (error) {
+        setError(errorText(error));
+        return;
+      }
+      setError(null);
+      setMacClip(data);
+      setMacClipCopied(false);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function copyMacClip() {
+    if (!macClip) return;
+    if (copyToPhone(macClip.text)) {
+      setMacClipCopied(true);
+      setTimeout(() => setMacClipCopied(false), 2000);
+    } else {
+      setError("Couldn't copy automatically. Long-press the text to copy it.");
+    }
   }
 
   async function toggleMute() {
@@ -158,6 +245,25 @@ export function SystemScreen({ host }: { host: PairedHost }) {
         </div>
       )}
 
+      {brightness !== null && (
+        <div className="row stack">
+          <div className="row-head">
+            <div className="title">Brightness</div>
+            <div className="sub">{brightness}%</div>
+          </div>
+          <div className="volume-controls">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={brightness}
+              onChange={(e) => onBrightness(Number(e.target.value))}
+              aria-label="Brightness"
+            />
+          </div>
+        </div>
+      )}
+
       {keepAwake !== null && (
         <div className="row">
           <div>
@@ -176,6 +282,12 @@ export function SystemScreen({ host }: { host: PairedHost }) {
             <span />
           </button>
         </div>
+      )}
+      {keepAwake !== null && (
+        <label className="row-option">
+          <input type="checkbox" checked={keepAwakeAtLaunch} onChange={toggleKeepAwakeAtLaunch} />
+          Turn on automatically whenever Helm starts
+        </label>
       )}
 
       <div className="control-grid">
@@ -210,6 +322,28 @@ export function SystemScreen({ host }: { host: PairedHost }) {
         <button className="action primary" disabled={!clip || busy === "clip"} onClick={sendClip}>
           Send
         </button>
+      </div>
+
+      <div className="row stack">
+        <div className="row-head">
+          <div className="title">Get Mac clipboard</div>
+          {macClipCopied && <div className="sub ok">Copied to phone</div>}
+        </div>
+        {macClip && (
+          <>
+            <textarea className="clip-input" value={macClip.text} readOnly rows={3} />
+            {macClip.truncated && <div className="sub">Showing the first 100,000 characters.</div>}
+            {!macClip.text && <div className="sub">The Mac clipboard has no text.</div>}
+          </>
+        )}
+        <div className="control-grid tight">
+          <button className="action" disabled={busy === "macclip"} onClick={fetchMacClip}>
+            {macClip ? "Refresh" : "Get from Mac"}
+          </button>
+          <button className="action primary" disabled={!macClip?.text} onClick={copyMacClip}>
+            Copy to phone
+          </button>
+        </div>
       </div>
     </div>
   );

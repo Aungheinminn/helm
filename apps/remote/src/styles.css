@@ -713,3 +713,17 @@ button.switch > span {
 }
 button.switch.on { background: #2f9e8a; }
 button.switch.on > span { transform: translateX(20px); }
+
+.row-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -2px 0 10px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: #aaa;
+  cursor: pointer;
+}
+.row-option input { width: 18px; height: 18px; accent-color: #2f9e8a; margin: 0; }
+.control-grid.tight { margin-bottom: 0; }
+.control-grid.tight button.action { padding: 10px; font-size: 13px; }

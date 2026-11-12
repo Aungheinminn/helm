@@ -1,4 +1,5 @@
-import { TEST_ADMIN_TOKEN } from "./env";
+import { TEST_ADMIN_TOKEN, TEST_DATA_DIR } from "./env";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
 
@@ -102,6 +103,10 @@ describe("device auth", () => {
     expect(
       (await call("/system/clipboard", { method: "POST", json: { text: "hi" } })).status,
     ).toBe(401);
+    expect((await call("/system/clipboard")).status).toBe(401);
+    expect((await call("/system/brightness", { method: "POST", json: { level: 50 } })).status).toBe(
+      401,
+    );
   });
 
   test("a paired device's token is accepted", async () => {
@@ -133,9 +138,35 @@ describe("input validation", () => {
     expect(res.status).toBe(422);
   });
 
+  test("brightness outside 0–100 is rejected", async () => {
+    const { token } = await pair();
+    for (const level of [-1, 101]) {
+      const res = await call("/system/brightness", { method: "POST", token, json: { level } });
+      expect(res.status).toBe(422);
+    }
+  });
+
   test("app icon names are restricted to safe characters", async () => {
     const { token } = await pair();
     const res = await call(`/apps/icon?name=${encodeURIComponent("../../etc/passwd")}`, { token });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("keep awake at launch", () => {
+  // Only the setting is touched here, never `on`, so caffeinate isn't spawned.
+  test("is off by default, and toggling it is saved", async () => {
+    const { token } = await pair();
+    const set = (atLaunch: boolean) =>
+      call("/system/keep-awake", { method: "POST", token, json: { atLaunch } });
+
+    const on = await set(true);
+    expect(on.status).toBe(200);
+    expect(((await on.json()) as { keepAwakeAtLaunch: boolean }).keepAwakeAtLaunch).toBe(true);
+    const saved = await Bun.file(join(TEST_DATA_DIR, "settings.json")).json();
+    expect(saved).toEqual({ keepAwakeAtLaunch: true });
+
+    const off = await set(false);
+    expect(((await off.json()) as { keepAwakeAtLaunch: boolean }).keepAwakeAtLaunch).toBe(false);
   });
 });
