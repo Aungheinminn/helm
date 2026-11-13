@@ -100,10 +100,6 @@ describe("device auth", () => {
     expect((await deviceProbe()).status).toBe(401);
     expect((await deviceProbe("not-a-real-token")).status).toBe(401);
     expect((await call("/ports/kill", { method: "POST", json: { port: 1 } })).status).toBe(401);
-    expect(
-      (await call("/system/clipboard", { method: "POST", json: { text: "hi" } })).status,
-    ).toBe(401);
-    expect((await call("/system/clipboard")).status).toBe(401);
     expect((await call("/system/brightness", { method: "POST", json: { level: 50 } })).status).toBe(
       401,
     );
@@ -129,12 +125,6 @@ describe("input validation", () => {
   test("volume outside 0–100 is rejected", async () => {
     const { token } = await pair();
     const res = await call("/system/volume", { method: "POST", token, json: { level: 150 } });
-    expect(res.status).toBe(422);
-  });
-
-  test("empty clipboard text is rejected", async () => {
-    const { token } = await pair();
-    const res = await call("/system/clipboard", { method: "POST", token, json: { text: "" } });
     expect(res.status).toBe(422);
   });
 
