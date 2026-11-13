@@ -652,7 +652,6 @@ input.name-input {
 .row.stack { flex-direction: column; align-items: stretch; gap: 10px; }
 .row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .row-head .sub { margin-top: 0; }
-.row .sub.ok { color: #7fd1c1; }
 
 .battery-meter {
   width: 64px;
@@ -677,19 +676,6 @@ input.name-input {
   margin-bottom: 8px;
 }
 .control-grid button.action { padding: 14px; font-size: 14px; }
-
-.clip-input {
-  width: 100%;
-  resize: vertical;
-  background: #0f0f12;
-  color: #e8eaed;
-  border: 1px solid #2a2a30;
-  border-radius: 8px;
-  padding: 10px;
-  font: inherit;
-  font-size: 16px;
-}
-.clip-input:focus { outline: none; border-color: #7fd1c1; }
 
 button.switch {
   position: relative;
@@ -725,5 +711,3 @@ button.switch.on > span { transform: translateX(20px); }
   cursor: pointer;
 }
 .row-option input { width: 18px; height: 18px; accent-color: #2f9e8a; margin: 0; }
-.control-grid.tight { margin-bottom: 0; }
-.control-grid.tight button.action { padding: 10px; font-size: 13px; }

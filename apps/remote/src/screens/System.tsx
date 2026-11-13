@@ -24,26 +24,6 @@ function errorText(error: { status: unknown; value: unknown }): string {
   return String(v ?? error.status);
 }
 
-// navigator.clipboard needs HTTPS, and Helm is served over plain HTTP on the LAN,
-// so fall back to the old select-and-copy, which works inside a tap handler.
-function copyToPhone(text: string): boolean {
-  if (navigator.clipboard && window.isSecureContext) {
-    void navigator.clipboard.writeText(text);
-    return true;
-  }
-  const el = document.createElement("textarea");
-  el.value = text;
-  el.setAttribute("readonly", "");
-  el.style.position = "fixed";
-  el.style.opacity = "0";
-  document.body.appendChild(el);
-  el.select();
-  el.setSelectionRange(0, text.length);
-  const ok = document.execCommand("copy");
-  el.remove();
-  return ok;
-}
-
 function batteryLine(b: Battery): string {
   const parts = [b.state];
   if (b.timeRemaining) parts.push(`${b.timeRemaining} ${b.state === "charging" ? "to full" : "left"}`);
@@ -57,13 +37,9 @@ export function SystemScreen({ host }: { host: PairedHost }) {
   const [keepAwake, setKeepAwake] = useState<boolean | null>(null);
   const [keepAwakeAtLaunch, setKeepAwakeAtLaunch] = useState(false);
   const [brightness, setBrightness] = useState<number | null>(null);
-  const [macClip, setMacClip] = useState<{ text: string; truncated: boolean } | null>(null);
-  const [macClipCopied, setMacClipCopied] = useState(false);
   const lastBrightnessDrag = useRef(0);
   const brightnessDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [actionError, setError] = useState<string | null>(null);
-  const [clip, setClip] = useState("");
-  const [clipSent, setClipSent] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const lastDrag = useRef(0);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -126,32 +102,6 @@ export function SystemScreen({ host }: { host: PairedHost }) {
     }
   }
 
-  async function fetchMacClip() {
-    setBusy("macclip");
-    try {
-      const { data, error } = await api.system.clipboard.get();
-      if (error) {
-        setError(errorText(error));
-        return;
-      }
-      setError(null);
-      setMacClip(data);
-      setMacClipCopied(false);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  function copyMacClip() {
-    if (!macClip) return;
-    if (copyToPhone(macClip.text)) {
-      setMacClipCopied(true);
-      setTimeout(() => setMacClipCopied(false), 2000);
-    } else {
-      setError("Couldn't copy automatically. Long-press the text to copy it.");
-    }
-  }
-
   async function toggleMute() {
     if (!volume) return;
     const muted = !volume.muted;
@@ -177,24 +127,6 @@ export function SystemScreen({ host }: { host: PairedHost }) {
       const { error } = await call();
       if (error) setError(errorText(error as { status: unknown; value: unknown }));
       else setError(null);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function sendClip() {
-    if (!clip) return;
-    setBusy("clip");
-    try {
-      const { error } = await api.system.clipboard.post({ text: clip });
-      if (error) {
-        setError(errorText(error));
-        return;
-      }
-      setError(null);
-      setClip("");
-      setClipSent(true);
-      setTimeout(() => setClipSent(false), 2000);
     } finally {
       setBusy(null);
     }
@@ -305,45 +237,6 @@ export function SystemScreen({ host }: { host: PairedHost }) {
         >
           Sleep display
         </button>
-      </div>
-
-      <div className="row stack">
-        <div className="row-head">
-          <div className="title">Send to Mac clipboard</div>
-          {clipSent && <div className="sub ok">Copied on Mac</div>}
-        </div>
-        <textarea
-          className="clip-input"
-          value={clip}
-          onChange={(e) => setClip(e.target.value)}
-          placeholder="Paste or type text…"
-          rows={3}
-        />
-        <button className="action primary" disabled={!clip || busy === "clip"} onClick={sendClip}>
-          Send
-        </button>
-      </div>
-
-      <div className="row stack">
-        <div className="row-head">
-          <div className="title">Get Mac clipboard</div>
-          {macClipCopied && <div className="sub ok">Copied to phone</div>}
-        </div>
-        {macClip && (
-          <>
-            <textarea className="clip-input" value={macClip.text} readOnly rows={3} />
-            {macClip.truncated && <div className="sub">Showing the first 100,000 characters.</div>}
-            {!macClip.text && <div className="sub">The Mac clipboard has no text.</div>}
-          </>
-        )}
-        <div className="control-grid tight">
-          <button className="action" disabled={busy === "macclip"} onClick={fetchMacClip}>
-            {macClip ? "Refresh" : "Get from Mac"}
-          </button>
-          <button className="action primary" disabled={!macClip?.text} onClick={copyMacClip}>
-            Copy to phone
-          </button>
-        </div>
       </div>
     </div>
   );

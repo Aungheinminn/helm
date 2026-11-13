@@ -49,21 +49,6 @@ async function setBrightness(level: number): Promise<number | null> {
   return parseBrightness(raw);
 }
 
-const CLIPBOARD_READ_LIMIT = 100_000;
-
-async function readClipboard(): Promise<{ text: string; truncated: boolean }> {
-  const proc = Bun.spawn(["pbpaste"], {
-    stdout: "pipe",
-    env: { ...process.env, LANG: "en_US.UTF-8" },
-  });
-  const text = await new Response(proc.stdout).text();
-  await proc.exited;
-  return {
-    text: text.slice(0, CLIPBOARD_READ_LIMIT),
-    truncated: text.length > CLIPBOARD_READ_LIMIT,
-  };
-}
-
 let caffeinate: ReturnType<typeof Bun.spawn> | null = null;
 
 function isKeepingAwake(): boolean {
@@ -81,21 +66,6 @@ function setKeepAwake(on: boolean): void {
   } else if (!on && caffeinate) {
     caffeinate.kill();
     caffeinate = null;
-  }
-}
-
-async function setClipboard(text: string): Promise<void> {
-  const proc = Bun.spawn(["pbcopy"], {
-    stdin: new TextEncoder().encode(text),
-    stderr: "pipe",
-    // pbcopy picks its text encoding from the locale; the Electron-spawned server
-    // often has no LANG, which turns non-ASCII text into garbage.
-    env: { ...process.env, LANG: "en_US.UTF-8" },
-  });
-  const code = await proc.exited;
-  if (code !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`pbcopy exited ${code}: ${stderr.trim()}`);
   }
 }
 
@@ -185,13 +155,4 @@ export const systemRoutes = new Elysia({ prefix: "/system" })
   .post("/display-sleep", async () => {
     await run("pmset", ["displaysleepnow"]);
     return { ok: true };
-  })
-  .get("/clipboard", readClipboard)
-  .post(
-    "/clipboard",
-    async ({ body }) => {
-      await setClipboard(body.text);
-      return { ok: true };
-    },
-    { body: t.Object({ text: t.String({ minLength: 1, maxLength: 100_000 }) }) },
-  );
+  });
